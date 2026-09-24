@@ -1,14 +1,26 @@
-/* Reader v3: full-screen page geometry and physical page-turn feel. */
+/* Reader v3: full-screen geometry, safe chrome and GPU-friendly page turns. */
+.reader {
+  --reader-ui-bg: #fbfaf7;
+  --reader-ui-fg: #211d19;
+}
+.reader-theme-paper { --reader-ui-bg: #f2efe7; --reader-ui-fg: #24211d; }
+.reader-theme-warm { --reader-ui-bg: #f3e5d3; --reader-ui-fg: #34271d; }
+.reader-theme-sepia { --reader-ui-bg: #eadcc0; --reader-ui-fg: #382b20; }
+.reader-theme-dark { --reader-ui-bg: #161514; --reader-ui-fg: #e8e4dc; }
+.reader-theme-oled { --reader-ui-bg: #000; --reader-ui-fg: #e8e8e8; }
+
 .reader-stage {
-  perspective: 1800px;
+  perspective: 1400px;
   perspective-origin: 50% 50%;
 }
 
+/* Full-screen reading when chrome is hidden. */
 .text-stage {
   padding-top: max(10px, calc(env(safe-area-inset-top) + 4px));
   padding-right: var(--reader-margin);
   padding-bottom: max(36px, calc(env(safe-area-inset-bottom) + 26px));
   padding-left: var(--reader-margin);
+  transition: padding .18s ease;
 }
 
 .page-surface {
@@ -18,9 +30,13 @@
   height: 100%;
   min-height: 100%;
   margin: 0;
+  transform: translate3d(var(--drag-x), 0, 0);
   transform-style: preserve-3d;
   backface-visibility: hidden;
-  will-change: transform, filter, opacity;
+  -webkit-backface-visibility: hidden;
+  will-change: transform, opacity;
+  contain: paint;
+  transition: none;
 }
 
 .epub-stage,
@@ -34,13 +50,17 @@
 
 .epub-host {
   inset: 0 !important;
+  transform: translate3d(var(--drag-x), 0, 0);
   transform-style: preserve-3d;
   backface-visibility: hidden;
-  will-change: transform, filter, opacity;
+  -webkit-backface-visibility: hidden;
+  will-change: transform, opacity;
+  transition: top .18s ease, bottom .18s ease;
 }
 
 .pdf-stage {
   padding: max(8px, env(safe-area-inset-top)) 0 max(38px, calc(env(safe-area-inset-bottom) + 28px));
+  transition: padding .18s ease;
 }
 
 .pdf-page {
@@ -48,9 +68,68 @@
   width: 100%;
   display: grid;
   place-items: start center;
+  transform: translate3d(var(--drag-x), 0, 0);
   transform-style: preserve-3d;
   backface-visibility: hidden;
-  will-change: transform, filter, opacity;
+  -webkit-backface-visibility: hidden;
+  will-change: transform, opacity;
+  contain: paint;
+  transition: none;
+}
+
+/* Chrome gets its own visual surface instead of sitting transparently on the text. */
+.reader-chrome {
+  min-height: calc(58px + env(safe-area-inset-top));
+}
+
+.reader-chrome.visible {
+  background: color-mix(in srgb, var(--reader-ui-bg) 94%, transparent) !important;
+  color: var(--reader-ui-fg);
+  border-bottom: 1px solid color-mix(in srgb, currentColor 8%, transparent);
+  box-shadow: 0 8px 24px rgba(0,0,0,.045);
+  backdrop-filter: blur(18px) saturate(1.08);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+}
+
+.reader-actions.visible {
+  background: color-mix(in srgb, var(--reader-ui-bg) 88%, transparent);
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, currentColor 7%, transparent);
+  border-radius: 999px;
+  box-shadow: 0 6px 22px rgba(0,0,0,.07);
+  backdrop-filter: blur(16px) saturate(1.05);
+  -webkit-backdrop-filter: blur(16px) saturate(1.05);
+}
+
+.reader-actions.visible button {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Reserve real reading space whenever the controls are visible. */
+.reader-chrome.visible ~ .text-stage {
+  padding-top: max(78px, calc(env(safe-area-inset-top) + 66px));
+}
+.reader-actions.visible ~ .text-stage {
+  padding-bottom: max(78px, calc(env(safe-area-inset-bottom) + 66px));
+}
+.reader-chrome.visible ~ .pdf-stage {
+  padding-top: max(76px, calc(env(safe-area-inset-top) + 64px));
+}
+.reader-actions.visible ~ .pdf-stage {
+  padding-bottom: max(78px, calc(env(safe-area-inset-bottom) + 66px));
+}
+.reader-chrome.visible ~ .epub-stage .epub-host {
+  top: max(70px, calc(env(safe-area-inset-top) + 58px)) !important;
+  height: auto !important;
+}
+.reader-actions.visible ~ .epub-stage .epub-host {
+  bottom: max(66px, calc(env(safe-area-inset-bottom) + 54px)) !important;
+  height: auto !important;
+}
+.reader-actions.visible ~ .reader-stage .reader-footnote {
+  bottom: max(68px, calc(env(safe-area-inset-bottom) + 56px));
 }
 
 .reader-footnote {
@@ -63,94 +142,64 @@
   max-width: calc(100vw - 40px);
   padding: 5px 10px;
   border: 1px solid color-mix(in srgb, currentColor 7%, transparent);
-  background: color-mix(in srgb, var(--reader-bg, currentColor) 78%, transparent);
+  background: color-mix(in srgb, var(--reader-ui-bg) 86%, transparent);
   color: inherit;
   font-size: 10.5px;
   font-variant-numeric: tabular-nums;
   font-weight: 650;
   letter-spacing: .015em;
-  opacity: .78;
-  box-shadow: 0 4px 18px rgba(0,0,0,.06);
-  backdrop-filter: blur(14px) saturate(1.1);
+  opacity: .82;
+  box-shadow: 0 3px 14px rgba(0,0,0,.05);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   white-space: nowrap;
+  transition: bottom .18s ease;
 }
 
-.epub-stage .reader-footnote {
-  --reader-bg: #f7f3ec;
-}
-.reader-theme-dark .epub-stage .reader-footnote { --reader-bg: #161514; }
-.reader-theme-oled .epub-stage .reader-footnote { --reader-bg: #000; }
-.reader-theme-sepia .epub-stage .reader-footnote { --reader-bg: #eadcc0; }
-.reader-theme-warm .epub-stage .reader-footnote { --reader-bg: #f3e5d3; }
-.reader-theme-paper .epub-stage .reader-footnote { --reader-bg: #f2efe7; }
-
-/* The new page enters on a hinge, with a moving fold highlight and page-edge shadow. */
+/*
+  The content is swapped by Reader.tsx around 27% of the animation.
+  These keyframes bend the old page toward that point, then let the new
+  page settle. No filters or mix-blend-mode: Safari can keep this on GPU.
+*/
 @keyframes bookLeafNext {
-  0% {
-    opacity: .25;
-    transform: translate3d(7%, 0, 0) rotateY(82deg) scaleX(.94);
-    filter: brightness(.84) drop-shadow(-34px 0 34px rgba(0,0,0,.30));
-  }
-  32% {
-    opacity: .58;
-    transform: translate3d(3%, 0, 0) rotateY(56deg) scaleX(.965);
-    filter: brightness(.91) drop-shadow(-26px 0 30px rgba(0,0,0,.24));
-  }
-  68% {
-    opacity: .92;
-    transform: translate3d(.7%, 0, 0) rotateY(16deg) scaleX(.992);
-    filter: brightness(.98) drop-shadow(-10px 0 18px rgba(0,0,0,.14));
-  }
-  100% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) rotateY(0deg) scaleX(1);
-    filter: none;
-  }
+  0%   { opacity: 1; transform: translate3d(var(--drag-x),0,0) rotateY(0deg) scaleX(1); }
+  18%  { opacity: .98; transform: translate3d(-.6%,0,0) rotateY(4deg) scaleX(.998); }
+  27%  { opacity: .82; transform: translate3d(-1.8%,0,0) rotateY(11deg) scaleX(.988); }
+  31%  { opacity: .80; transform: translate3d(2.0%,0,0) rotateY(-12deg) scaleX(.987); }
+  62%  { opacity: .96; transform: translate3d(.55%,0,0) rotateY(-3.5deg) scaleX(.997); }
+  100% { opacity: 1; transform: translate3d(0,0,0) rotateY(0deg) scaleX(1); }
 }
 
 @keyframes bookLeafPrev {
-  0% {
-    opacity: .25;
-    transform: translate3d(-7%, 0, 0) rotateY(-82deg) scaleX(.94);
-    filter: brightness(.84) drop-shadow(34px 0 34px rgba(0,0,0,.30));
-  }
-  32% {
-    opacity: .58;
-    transform: translate3d(-3%, 0, 0) rotateY(-56deg) scaleX(.965);
-    filter: brightness(.91) drop-shadow(26px 0 30px rgba(0,0,0,.24));
-  }
-  68% {
-    opacity: .92;
-    transform: translate3d(-.7%, 0, 0) rotateY(-16deg) scaleX(.992);
-    filter: brightness(.98) drop-shadow(10px 0 18px rgba(0,0,0,.14));
-  }
-  100% {
-    opacity: 1;
-    transform: translate3d(0, 0, 0) rotateY(0deg) scaleX(1);
-    filter: none;
-  }
+  0%   { opacity: 1; transform: translate3d(var(--drag-x),0,0) rotateY(0deg) scaleX(1); }
+  18%  { opacity: .98; transform: translate3d(.6%,0,0) rotateY(-4deg) scaleX(.998); }
+  27%  { opacity: .82; transform: translate3d(1.8%,0,0) rotateY(-11deg) scaleX(.988); }
+  31%  { opacity: .80; transform: translate3d(-2.0%,0,0) rotateY(12deg) scaleX(.987); }
+  62%  { opacity: .96; transform: translate3d(-.55%,0,0) rotateY(3.5deg) scaleX(.997); }
+  100% { opacity: 1; transform: translate3d(0,0,0) rotateY(0deg) scaleX(1); }
 }
 
 @keyframes leafSheenNext {
-  0%, 12% { opacity: .58; transform: translateX(30%); }
-  58% { opacity: .34; transform: translateX(-8%); }
-  100% { opacity: 0; transform: translateX(-38%); }
+  0%, 18% { opacity: 0; transform: translate3d(34%,0,0); }
+  28% { opacity: .24; transform: translate3d(10%,0,0); }
+  62% { opacity: .10; transform: translate3d(-10%,0,0); }
+  100% { opacity: 0; transform: translate3d(-30%,0,0); }
 }
 
 @keyframes leafSheenPrev {
-  0%, 12% { opacity: .58; transform: translateX(-30%); }
-  58% { opacity: .34; transform: translateX(8%); }
-  100% { opacity: 0; transform: translateX(38%); }
+  0%, 18% { opacity: 0; transform: translate3d(-34%,0,0); }
+  28% { opacity: .24; transform: translate3d(-10%,0,0); }
+  62% { opacity: .10; transform: translate3d(10%,0,0); }
+  100% { opacity: 0; transform: translate3d(30%,0,0); }
 }
 
 .turn-next {
   transform-origin: left center !important;
-  animation: bookLeafNext .52s cubic-bezier(.20,.68,.18,1) both !important;
+  animation: bookLeafNext .54s cubic-bezier(.22,.68,.20,1) both !important;
 }
-
 .turn-prev {
   transform-origin: right center !important;
-  animation: bookLeafPrev .52s cubic-bezier(.20,.68,.18,1) both !important;
+  animation: bookLeafPrev .54s cubic-bezier(.22,.68,.20,1) both !important;
 }
 
 .turn-next::after,
@@ -160,23 +209,16 @@
   z-index: 8;
   inset: 0;
   pointer-events: none;
-  border-radius: inherit;
-  mix-blend-mode: multiply;
+  opacity: 0;
+  will-change: transform, opacity;
 }
-
 .turn-next::after {
-  background: linear-gradient(90deg, rgba(0,0,0,.16) 0%, rgba(255,255,255,.28) 18%, rgba(255,255,255,.06) 55%, rgba(0,0,0,.04) 100%);
-  animation: leafSheenNext .52s ease-out both;
+  background: linear-gradient(90deg, rgba(0,0,0,.10), rgba(255,255,255,.20) 20%, rgba(255,255,255,0) 52%);
+  animation: leafSheenNext .54s ease-out both;
 }
-
 .turn-prev::after {
-  background: linear-gradient(270deg, rgba(0,0,0,.16) 0%, rgba(255,255,255,.28) 18%, rgba(255,255,255,.06) 55%, rgba(0,0,0,.04) 100%);
-  animation: leafSheenPrev .52s ease-out both;
-}
-
-.reader-stage[style*="--drag-x"] .page-surface,
-.reader-stage[style*="--drag-x"] .pdf-page {
-  transition: transform .1s linear;
+  background: linear-gradient(270deg, rgba(0,0,0,.10), rgba(255,255,255,.20) 20%, rgba(255,255,255,0) 52%);
+  animation: leafSheenPrev .54s ease-out both;
 }
 
 @media (min-width: 760px) {
@@ -192,5 +234,11 @@
   .turn-next::after,
   .turn-prev::after {
     animation: none !important;
+  }
+  .text-stage,
+  .pdf-stage,
+  .epub-host,
+  .reader-footnote {
+    transition: none !important;
   }
 }
