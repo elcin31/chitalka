@@ -1,0 +1,9 @@
+node_modules
+dist
+.vite
+.DS_Store
+.vercel
+public/pwa-*.png
+public/maskable-icon-*.png
+public/apple-touch-icon-*.png
+public/favicon.ico
