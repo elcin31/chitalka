@@ -1,0 +1,196 @@
+/* Reader v3: full-screen page geometry and physical page-turn feel. */
+.reader-stage {
+  perspective: 1800px;
+  perspective-origin: 50% 50%;
+}
+
+.text-stage {
+  padding-top: max(10px, calc(env(safe-area-inset-top) + 4px));
+  padding-right: var(--reader-margin);
+  padding-bottom: max(36px, calc(env(safe-area-inset-bottom) + 26px));
+  padding-left: var(--reader-margin);
+}
+
+.page-surface {
+  position: relative;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  will-change: transform, filter, opacity;
+}
+
+.epub-stage,
+.epub-host,
+.epub-host > div,
+.epub-host iframe {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+}
+
+.epub-host {
+  inset: 0 !important;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  will-change: transform, filter, opacity;
+}
+
+.pdf-stage {
+  padding: max(8px, env(safe-area-inset-top)) 0 max(38px, calc(env(safe-area-inset-bottom) + 28px));
+}
+
+.pdf-page {
+  position: relative;
+  width: 100%;
+  display: grid;
+  place-items: start center;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  will-change: transform, filter, opacity;
+}
+
+.reader-footnote {
+  z-index: 34;
+  bottom: max(7px, calc(env(safe-area-inset-bottom) + 5px));
+  min-height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: calc(100vw - 40px);
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, currentColor 7%, transparent);
+  background: color-mix(in srgb, var(--reader-bg, currentColor) 78%, transparent);
+  color: inherit;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  letter-spacing: .015em;
+  opacity: .78;
+  box-shadow: 0 4px 18px rgba(0,0,0,.06);
+  backdrop-filter: blur(14px) saturate(1.1);
+  white-space: nowrap;
+}
+
+.epub-stage .reader-footnote {
+  --reader-bg: #f7f3ec;
+}
+.reader-theme-dark .epub-stage .reader-footnote { --reader-bg: #161514; }
+.reader-theme-oled .epub-stage .reader-footnote { --reader-bg: #000; }
+.reader-theme-sepia .epub-stage .reader-footnote { --reader-bg: #eadcc0; }
+.reader-theme-warm .epub-stage .reader-footnote { --reader-bg: #f3e5d3; }
+.reader-theme-paper .epub-stage .reader-footnote { --reader-bg: #f2efe7; }
+
+/* The new page enters on a hinge, with a moving fold highlight and page-edge shadow. */
+@keyframes bookLeafNext {
+  0% {
+    opacity: .25;
+    transform: translate3d(7%, 0, 0) rotateY(82deg) scaleX(.94);
+    filter: brightness(.84) drop-shadow(-34px 0 34px rgba(0,0,0,.30));
+  }
+  32% {
+    opacity: .58;
+    transform: translate3d(3%, 0, 0) rotateY(56deg) scaleX(.965);
+    filter: brightness(.91) drop-shadow(-26px 0 30px rgba(0,0,0,.24));
+  }
+  68% {
+    opacity: .92;
+    transform: translate3d(.7%, 0, 0) rotateY(16deg) scaleX(.992);
+    filter: brightness(.98) drop-shadow(-10px 0 18px rgba(0,0,0,.14));
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotateY(0deg) scaleX(1);
+    filter: none;
+  }
+}
+
+@keyframes bookLeafPrev {
+  0% {
+    opacity: .25;
+    transform: translate3d(-7%, 0, 0) rotateY(-82deg) scaleX(.94);
+    filter: brightness(.84) drop-shadow(34px 0 34px rgba(0,0,0,.30));
+  }
+  32% {
+    opacity: .58;
+    transform: translate3d(-3%, 0, 0) rotateY(-56deg) scaleX(.965);
+    filter: brightness(.91) drop-shadow(26px 0 30px rgba(0,0,0,.24));
+  }
+  68% {
+    opacity: .92;
+    transform: translate3d(-.7%, 0, 0) rotateY(-16deg) scaleX(.992);
+    filter: brightness(.98) drop-shadow(10px 0 18px rgba(0,0,0,.14));
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotateY(0deg) scaleX(1);
+    filter: none;
+  }
+}
+
+@keyframes leafSheenNext {
+  0%, 12% { opacity: .58; transform: translateX(30%); }
+  58% { opacity: .34; transform: translateX(-8%); }
+  100% { opacity: 0; transform: translateX(-38%); }
+}
+
+@keyframes leafSheenPrev {
+  0%, 12% { opacity: .58; transform: translateX(-30%); }
+  58% { opacity: .34; transform: translateX(8%); }
+  100% { opacity: 0; transform: translateX(38%); }
+}
+
+.turn-next {
+  transform-origin: left center !important;
+  animation: bookLeafNext .52s cubic-bezier(.20,.68,.18,1) both !important;
+}
+
+.turn-prev {
+  transform-origin: right center !important;
+  animation: bookLeafPrev .52s cubic-bezier(.20,.68,.18,1) both !important;
+}
+
+.turn-next::after,
+.turn-prev::after {
+  content: "";
+  position: absolute;
+  z-index: 8;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  mix-blend-mode: multiply;
+}
+
+.turn-next::after {
+  background: linear-gradient(90deg, rgba(0,0,0,.16) 0%, rgba(255,255,255,.28) 18%, rgba(255,255,255,.06) 55%, rgba(0,0,0,.04) 100%);
+  animation: leafSheenNext .52s ease-out both;
+}
+
+.turn-prev::after {
+  background: linear-gradient(270deg, rgba(0,0,0,.16) 0%, rgba(255,255,255,.28) 18%, rgba(255,255,255,.06) 55%, rgba(0,0,0,.04) 100%);
+  animation: leafSheenPrev .52s ease-out both;
+}
+
+.reader-stage[style*="--drag-x"] .page-surface,
+.reader-stage[style*="--drag-x"] .pdf-page {
+  transition: transform .1s linear;
+}
+
+@media (min-width: 760px) {
+  .text-stage {
+    padding-left: max(var(--reader-margin), calc((100vw - 820px) / 2));
+    padding-right: max(var(--reader-margin), calc((100vw - 820px) / 2));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-next,
+  .turn-prev,
+  .turn-next::after,
+  .turn-prev::after {
+    animation: none !important;
+  }
+}
