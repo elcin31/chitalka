@@ -28,6 +28,10 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
 }
 
+function delay(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
+}
+
 function resolvedTheme(theme: ReaderSettings['theme']) {
   if (theme !== 'system') return theme
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
@@ -52,6 +56,16 @@ function marginPx(size: ReaderSettings['marginSize']) {
   return 24
 }
 
+function estimateCharsPerScreen(settings: ReaderSettings, width = window.innerWidth, height = window.innerHeight) {
+  const usableWidth = Math.max(250, width - marginPx(settings.marginSize) * 2)
+  const usableHeight = Math.max(360, height - 46)
+  const baseEm = settings.fontFamily === 'serif' ? 0.52 : 0.54
+  const averageCharWidth = settings.fontSize * Math.max(0.42, baseEm + settings.letterSpacing)
+  const charsPerLine = Math.max(18, usableWidth / averageCharWidth)
+  const linesPerScreen = Math.max(10, usableHeight / (settings.fontSize * settings.lineHeight))
+  return Math.round(clamp(charsPerLine * linesPerScreen * 0.88, 420, 2400))
+}
+
 function readerBodyCss(settings: ReaderSettings) {
   const colors = themeColors(settings.theme)
   return {
@@ -63,7 +77,10 @@ function readerBodyCss(settings: ReaderSettings) {
     'text-align': `${settings.textAlign} !important`,
     color: `${colors.color} !important`,
     background: `${colors.background} !important`,
-    padding: `3.5rem ${marginPx(settings.marginSize)}px 4.5rem !important`
+    margin: '0 !important',
+    'box-sizing': 'border-box !important',
+    'min-height': '100vh !important',
+    padding: `max(12px, env(safe-area-inset-top)) ${marginPx(settings.marginSize)}px max(2.2rem, calc(env(safe-area-inset-bottom) + 1.35rem)) !important`
   }
 }
 
@@ -82,16 +99,24 @@ function usePageAnimation(settings: ReaderSettings, onTurn: () => void) {
   const animate = useCallback(async (nextDirection: 'next' | 'prev', action: () => Promise<void> | void) => {
     if (locked.current) return
     locked.current = true
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const animated = settings.animations && !reduced
     try {
+      if (!animated) {
+        await action()
+        onTurn()
+        return
+      }
+      setDirection(null)
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      setDirection(nextDirection)
+      await delay(145)
       await action()
       onTurn()
-      if (settings.animations && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        setDirection(null)
-        requestAnimationFrame(() => setDirection(nextDirection))
-        window.setTimeout(() => setDirection(null), 270)
-      }
+      await delay(390)
     } finally {
-      window.setTimeout(() => { locked.current = false }, 100)
+      setDirection(null)
+      locked.current = false
     }
   }, [onTurn, settings.animations])
   return { direction, animate }
@@ -113,7 +138,7 @@ function useTouchNavigator(elementRef: RefObject<HTMLElement | null>, onPrev: ()
     const dx = event.clientX - start.x
     const dy = event.clientY - start.y
     if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) {
-      elementRef.current?.style.setProperty('--drag-x', `${clamp(dx * 0.18, -26, 26)}px`)
+      elementRef.current?.style.setProperty('--drag-x', `${clamp(dx * 0.34, -58, 58)}px`)
     }
   }, [elementRef])
 
@@ -213,7 +238,25 @@ function TextReader(props: ReaderChildProps) {
   const [fullText, setFullText] = useState('')
   const [page, setPage] = useState(0)
   const [toc, setToc] = useState<TocItem[]>([])
+  const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }))
   const { direction, animate } = usePageAnimation(settings, onTurn)
+
+  useEffect(() => {
+    let timer = 0
+    const onResize = () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        setViewport((current) => {
+          const next = { width: window.innerWidth, height: window.innerHeight }
+          if (Math.abs(next.width - current.width) < 30 && Math.abs(next.height - current.height) < 120) return current
+          return next
+        })
+      }, 180)
+    }
+    window.addEventListener('resize', onResize)
+    window.addEventListener('orientationchange', onResize)
+    return () => { window.clearTimeout(timer); window.removeEventListener('resize', onResize); window.removeEventListener('orientationchange', onResize) }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -221,11 +264,11 @@ function TextReader(props: ReaderChildProps) {
       const buffer = await book.file.arrayBuffer()
       const data = book.format === 'txt' ? txtToDocument(decodeTxt(buffer)) : fb2ToDocument(decodeXml(buffer))
       if (book.format === 'fb2') parseFb2(decodeXml(buffer))
-      const target = Math.max(1750, Math.round(4300 * (20 / settings.fontSize) * (1.65 / settings.lineHeight)))
+      const target = estimateCharsPerScreen(settings, viewport.width, viewport.height)
       const nextPages = paginateText(data.text, target)
       const nextToc = attachPagesToToc(data.toc, nextPages)
       const progress = await getProgress(book.id)
-      const saved = progress?.location.startsWith('page:') ? Number(progress.location.slice(5)) : Math.round((progress?.percentage ?? 0) * Math.max(0, nextPages.length - 1))
+      const saved = Math.round((progress?.percentage ?? 0) * Math.max(0, nextPages.length - 1))
       if (cancelled) return
       setFullText(data.text)
       setPages(nextPages)
@@ -233,7 +276,7 @@ function TextReader(props: ReaderChildProps) {
       setPage(clamp(Number.isFinite(saved) ? saved : 0, 0, Math.max(0, nextPages.length - 1)))
     })()
     return () => { cancelled = true }
-  }, [book, settings.fontSize, settings.lineHeight])
+  }, [book, settings.fontSize, settings.lineHeight, settings.fontFamily, settings.letterSpacing, settings.marginSize, viewport.height, viewport.width])
 
   const report = useCallback((nextPage: number) => {
     if (!pages.length) return
@@ -270,10 +313,11 @@ function TextReader(props: ReaderChildProps) {
   const colors = themeColors(settings.theme)
   const style = { '--reader-size': `${settings.fontSize}px`, '--reader-line': settings.lineHeight, '--reader-font': settings.fontFamily === 'serif' ? 'Iowan Old Style, Charter, Georgia, serif' : '-apple-system, BlinkMacSystemFont, Arial, sans-serif', '--reader-margin': `${marginPx(settings.marginSize)}px`, '--reader-weight': settings.fontWeight, '--reader-spacing': `${settings.letterSpacing}em`, '--reader-align': settings.textAlign, '--reader-bg': colors.background, '--reader-fg': colors.color } as CSSProperties
   const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => { gestures.onPointerUp(event); captureSelection() }
+  const percentage = pages.length > 1 ? page / (pages.length - 1) : 0
 
   return <div ref={stageRef} className="reader-stage text-stage" style={style} onPointerDown={gestures.onPointerDown} onPointerMove={gestures.onPointerMove} onPointerUp={handlePointerUp} onPointerCancel={gestures.onPointerCancel}>
     <div className={`page-surface ${direction ? `turn-${direction}` : ''}`}>{pages[page]?.text.split(/\n\n+/).map((paragraph, index) => toc.some((item) => item.page === page && paragraph.startsWith(item.label)) ? <h2 key={index}>{paragraph}</h2> : <p key={index}>{paragraph}</p>)}</div>
-    <div className="reader-footnote">{pages.length ? `${page + 1} / ${pages.length}` : 'Подготовка…'}</div>
+    <div className="reader-footnote">{pages.length ? `Стр. ${page + 1} из ${pages.length} · ${Math.round(percentage * 100)}%` : 'Подготовка…'}</div>
   </div>
 }
 
@@ -313,7 +357,7 @@ function PdfReader(props: ReaderChildProps) {
         const pdfPage = await pdf.getPage(page)
         if (cancelled) return
         const base = pdfPage.getViewport({ scale: 1 })
-        const cssWidth = Math.min(window.innerWidth - 20, 900)
+        const cssWidth = Math.min(window.innerWidth, 1100)
         const scale = (cssWidth * window.devicePixelRatio) / base.width
         const viewport = pdfPage.getViewport({ scale })
         canvas.width = Math.floor(viewport.width)
@@ -363,8 +407,12 @@ function PdfReader(props: ReaderChildProps) {
     void animate(delta > 0 ? 'next' : 'prev', () => setPage(next))
   }, [animate, page, pages])
   const gestures = useTouchNavigator(stageRef, () => go(-1), () => go(1), onToggleUi)
+  const percentage = pages > 1 ? (page - 1) / (pages - 1) : 0
 
-  return <div ref={stageRef} className="reader-stage pdf-stage" onPointerDown={gestures.onPointerDown} onPointerMove={gestures.onPointerMove} onPointerUp={gestures.onPointerUp} onPointerCancel={gestures.onPointerCancel}><div className={`pdf-page ${direction ? `turn-${direction}` : ''}`}><canvas ref={canvasRef} /></div><div className="reader-footnote">{page} / {pages}</div></div>
+  return <div ref={stageRef} className="reader-stage pdf-stage" onPointerDown={gestures.onPointerDown} onPointerMove={gestures.onPointerMove} onPointerUp={gestures.onPointerUp} onPointerCancel={gestures.onPointerCancel}>
+    <div className={`pdf-page ${direction ? `turn-${direction}` : ''}`}><canvas ref={canvasRef} /></div>
+    <div className="reader-footnote">Стр. {page} из {pages} · {Math.round(percentage * 100)}%</div>
+  </div>
 }
 
 function EpubReader(props: ReaderChildProps) {
@@ -374,6 +422,7 @@ function EpubReader(props: ReaderChildProps) {
   const renditionRef = useRef<any>(null)
   const turnRef = useRef<(delta: number) => Promise<void>>(async () => undefined)
   const [ready, setReady] = useState(false)
+  const [pageInfo, setPageInfo] = useState({ page: 1, total: 1, percentage: 0 })
   const { direction, animate } = usePageAnimation(settings, onTurn)
 
   const turn = useCallback(async (delta: number) => {
@@ -392,13 +441,23 @@ function EpubReader(props: ReaderChildProps) {
       bookRef.current = instance
       await instance.ready
       if (dead) return
-      onToc(flattenToc(instance.navigation?.toc ?? []))
+      const navigation = flattenToc(instance.navigation?.toc ?? [])
+      onToc(navigation)
       const rendition = instance.renderTo(hostRef.current!, { width: '100%', height: '100%', spread: 'none', flow: 'paginated' })
       renditionRef.current = rendition
       rendition.themes.default({ body: readerBodyCss(settings) })
       rendition.on('relocated', (loc: any) => {
         const percentage = Number(loc?.start?.percentage ?? 0)
-        const state = { location: loc?.start?.cfi || '', percentage: Number.isFinite(percentage) ? percentage : 0, excerpt: loc?.start?.displayed ? `Страница ${loc.start.displayed.page}` : undefined, chapterTitle: loc?.start?.href }
+        const safePercentage = Number.isFinite(percentage) ? percentage : 0
+        const displayedPage = Number(loc?.start?.displayed?.page ?? 1)
+        const displayedTotal = Number(loc?.start?.displayed?.total ?? 1)
+        const pageNumber = Number.isFinite(displayedPage) && displayedPage > 0 ? displayedPage : 1
+        const pageTotal = Number.isFinite(displayedTotal) && displayedTotal > 0 ? displayedTotal : 1
+        const href = String(loc?.start?.href || '')
+        const hrefBase = href.split('#')[0]
+        const chapter = navigation.find((item) => item.location.split('#')[0] === hrefBase)?.label
+        setPageInfo({ page: pageNumber, total: pageTotal, percentage: safePercentage })
+        const state = { location: loc?.start?.cfi || '', percentage: safePercentage, excerpt: `Страница ${pageNumber} из ${pageTotal} в разделе`, chapterTitle: chapter || href }
         onLocation(state)
         void saveProgress({ bookId: book.id, location: state.location, percentage: state.percentage, updatedAt: Date.now(), chapterTitle: state.chapterTitle })
       })
@@ -416,7 +475,7 @@ function EpubReader(props: ReaderChildProps) {
           if (!start || !event.touches[0]) return
           const dx = event.touches[0].clientX - start.x
           const dy = event.touches[0].clientY - start.y
-          if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) { moved = true; hostRef.current?.style.setProperty('--drag-x', `${clamp(dx * 0.14, -24, 24)}px`) }
+          if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) { moved = true; hostRef.current?.style.setProperty('--drag-x', `${clamp(dx * 0.28, -54, 54)}px`) }
         }
         const touchEnd = (event: TouchEvent) => {
           if (!start) return
@@ -470,7 +529,13 @@ function EpubReader(props: ReaderChildProps) {
     })
   }, [registerGoTo, registerSearch])
 
-  return <div className="reader-stage epub-stage"><div ref={hostRef} className={`epub-host ${direction ? `turn-${direction}` : ''}`} />{!ready && <div className="reader-loading">Открываем книгу…</div>}<button className="epub-edge epub-edge-left" onClick={() => void turn(-1)} aria-label="Предыдущая страница" /><button className="epub-edge epub-edge-right" onClick={() => void turn(1)} aria-label="Следующая страница" /></div>
+  return <div className="reader-stage epub-stage">
+    <div ref={hostRef} className={`epub-host ${direction ? `turn-${direction}` : ''}`} />
+    {!ready && <div className="reader-loading">Открываем книгу…</div>}
+    <button className="epub-edge epub-edge-left" onClick={() => void turn(-1)} aria-label="Предыдущая страница" />
+    <button className="epub-edge epub-edge-right" onClick={() => void turn(1)} aria-label="Следующая страница" />
+    <div className="reader-footnote">Стр. {pageInfo.page} из {pageInfo.total} в разделе · {Math.round(pageInfo.percentage * 100)}% книги</div>
+  </div>
 }
 
 export function BookReader({ book, settings, onExit, onSettings, onDataChanged }: { book: BookRecord; settings: ReaderSettings; onExit: () => void; onSettings: () => void; onDataChanged: () => void }) {
